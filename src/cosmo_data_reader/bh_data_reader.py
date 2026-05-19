@@ -29,7 +29,6 @@ def load_allbh_data(allbhs_file = None, recalc: bool=False):
         allbhs
     """
 
-
     pkl_fname = allbhs_file[:-5] + '.pkl'
     
     if not recalc:

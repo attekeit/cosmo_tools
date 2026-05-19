@@ -8,3 +8,4 @@ Install the library with command 'pip install -e .'
 
 ## TODOs
     * Add ketjugw and pygad to requirements
+    

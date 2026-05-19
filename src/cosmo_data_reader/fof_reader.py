@@ -193,5 +193,4 @@ def read_fof_files(folder_path: str, snap_i: int,
     with open(pkl_fname, 'wb') as f:
         pickle.dump(structure_data, f, protocol=pickle.HIGHEST_PROTOCOL)
     
-
     return structure_data

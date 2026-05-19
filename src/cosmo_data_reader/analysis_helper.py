@@ -126,7 +126,6 @@ def add_z_as_second_xaxis(ax, z_ticks = None, time_unit = 'Gyr',
     secax.set_xlabel('Redshift $z$')
     secax.set_xticks(z_ticks)
 
-
     #Not sure what this should return, do we need to return these two?
     #Maybe good to return, in case of user wanting to make further edits
     return ax, secax
