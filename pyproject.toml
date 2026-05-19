@@ -1,0 +1,15 @@
+[project]
+name = "cosmo_data_reader"
+version = "0.0.1"
+authors = [
+  { name="Atte Keitaanranta", email="atte.keitaanranta@helsinki.fi" },
+]
+description = "A package for helping reading data from cosmological (ketju) simulations"
+
+readme = "README.md"
+
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
