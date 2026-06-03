@@ -9,7 +9,8 @@ import re
 __all__ = ['load_allbh_data', 
            'load_nonketju_merger_info', 
            'load_ketju_merger_info',
-           'load_combined_merger_info']
+           'load_combined_merger_info',
+           'load_ketju_bhs_of_mergers']
 
 def load_allbh_data(allbhs_file = None, recalc: bool=False):
     """
@@ -192,6 +193,7 @@ def load_ketju_merger_info(ketju_file: str):
         merger_id_pairs = np.zeros((N_merge,2), dtype=int)
         id1 = mergers["ID1"]
         id2 = mergers['ID2']
+        id_remnant = mergers['ID_remnant']
         m1 = mergers['m1']
         m2 = mergers['m2']
         
@@ -202,6 +204,7 @@ def load_ketju_merger_info(ketju_file: str):
     ketju_merger_data = dict(
         z = z_merge,
         merger_ids = merger_id_pairs,
+        remnant_ids = id_remnant,
         N_merged = int(N_merge),
         m1 = m1,
         m2 = m2
@@ -212,4 +215,23 @@ def load_ketju_merger_info(ketju_file: str):
 def load_combined_merger_info(directory, recalc = False):
     print('Not implemented yet!')
     return -1
+
+def load_ketju_bhs_of_mergers(ketju_file: str, enforce_mass_limit=False):
+
+    ketju_merger_info = load_ketju_merger_info(ketju_file)
+    ids = ketju_merger_info['merger_ids'].flatten()
+    idlist = np.unique(ids)
+
+    #could be made faster by only loading those BHs that belong to idlist
+    ketju_bhs = ketjugw.load_hdf5(ketju_file, enforce_mass_limit=enforce_mass_limit)
+
+    merging_bhs = dict()
+    
+    for bhid, bh in ketju_bhs.items():
+        if int(bhid) in idlist:
+            merging_bhs[bhid] = bh 
+            
+    #TODO maybe change this to return the actual binaries?
+
+    return merging_bhs
 
