@@ -1,4 +1,5 @@
 import numpy as np
+import pygad
 
 #Some functions that hopefully are helpful with analysis and plotting
 
@@ -129,3 +130,13 @@ def add_z_as_second_xaxis(ax, z_ticks = None, time_unit = 'Gyr',
     #Not sure what this should return, do we need to return these two?
     #Maybe good to return, in case of user wanting to make further edits
     return ax, secax
+
+def get_luminosity_distance(z, H = 0.674, Omega_L = 0.686, Omega_m = 0.315,
+                                Omega_b = 0.0491, sigma_8 = 0.81, n_s=0.965):
+
+    
+    cosmology = pygad.physics.FLRWCosmo(H/100, Omega_L, Omega_m, Omega_b, sigma_8, n_s)
+    d_L = np.zeros(len(z))
+    for i in range(len(d_L)):
+        d_L[i] = cosmology.luminosity_distance(z[i]) #in Gpc
+    return d_L
