@@ -140,3 +140,14 @@ def get_luminosity_distance(z, H = 0.674, Omega_L = 0.686, Omega_m = 0.315,
     for i in range(len(d_L)):
         d_L[i] = cosmology.luminosity_distance(z[i]) #in Gpc
     return d_L
+
+#Copied from Matias's second zoom paper analysis
+def stellar_sigma(stars):
+    
+    vels = stars['vel'].in_units_of('km/s',subs=stars)
+    if len(vels) < 3:
+        return pygad.UnitQty(0., 'km/s')
+    vmean = np.mean(vels, axis=0) 
+    sigma2_ij = np.einsum("ki,kj", vels, vels)/len(vels) - vmean[:,np.newaxis] * vmean[np.newaxis]
+    #maximum eigenvalue
+    return pygad.UnitQty(np.sqrt(np.linalg.eigh(sigma2_ij)[0][-1]), 'km/s')
