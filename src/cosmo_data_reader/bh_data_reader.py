@@ -157,7 +157,7 @@ def load_nonketju_merger_info(directory: str, recalc: bool = False):
 
     return merger_data
 
-def load_ketju_merger_info(ketju_file: str):
+def load_ketju_merger_info(ketju_file: str, h = 0.674):
     """
     Read the merger data from the ketju_bhs files.
     
@@ -184,7 +184,6 @@ def load_ketju_merger_info(ketju_file: str):
     if ketju_file is None:
         ketju_file = directory + '/ketju_bhs.hdf5'
 
-    print(ketju_file)
     with h5py.File(ketju_file, 'r') as f:
         #we have a gadget 3 run, so lower case 
         mergers = f['mergers'] 
@@ -194,20 +193,24 @@ def load_ketju_merger_info(ketju_file: str):
         id1 = mergers["ID1"]
         id2 = mergers['ID2']
         id_remnant = mergers['ID_remnant']
-        m1 = mergers['m1']
-        m2 = mergers['m2']
+        #in solar mass
+        m1 = mergers['m1'] * 1e10/h
+        m2 = mergers['m2'] * 1e10/h
         
         merger_id_pairs[:,0] = id1[:]
         merger_id_pairs[:,1] = id2[:]
             
+    #If a simulation crashed for some reason, some mergers might be
+    #written multiple times. Cut these from the data
+    _, mask = np.unique(merger_id_pairs, axis=0, return_index=True)
 
     ketju_merger_data = dict(
-        z = z_merge,
-        merger_ids = merger_id_pairs,
-        remnant_ids = id_remnant,
-        N_merged = int(N_merge),
-        m1 = m1,
-        m2 = m2
+        z = z_merge[mask],
+        merger_ids = merger_id_pairs[mask],
+        remnant_ids = id_remnant[mask],
+        N_merged = int(len(z_merge[mask])),
+        m1 = m1[mask],
+        m2 = m2[mask]
     )
     return ketju_merger_data
 
@@ -216,6 +219,58 @@ def load_combined_merger_info(directory, recalc = False):
     print('Not implemented yet!')
     return -1
 
+#Using find_binaries of ketju on the list of bhs that are a part of a 
+#merger also finds binaries that do not merge. This functions only
+#returns binaries that actually merge, same structure as find_binaries
+#returns in ketjugw
+def load_binaries_of_ketju_mergers(ketju_file: str, enforce_mass_limit=False):
+
+    binaries = dict()
+
+    ketju_merger_info = load_ketju_merger_info(ketju_file)
+    ids = ketju_merger_info['merger_ids']
+    
+
+    merging_bhs = load_ketju_bhs_of_mergers(ketju_file, enforce_mass_limit)
+    merged_binaries = dict()
+    
+    #TODO surely this calculation can be done better
+    for idpair in ids:
+        id1 = idpair[0]
+        id2 = idpair[1]
+
+        bh1_found = False
+        bh2_found = False
+
+        for bhid, bh in merging_bhs.items():
+            if int(bhid) == int(id1):
+                bh1 = bh
+                bh1_found = True
+            elif int(bhid) == int(id2):
+                bh2 = bh
+                bh2_found = True
+            
+            if bh1_found and bh2_found:
+                break
+
+        merger_pair = dict()
+        merger_pair[id1] = bh1
+        merger_pair[id2] = bh2
+        #Should find exactly 1 binary
+        merged_binary = ketjugw.find_binaries(merger_pair, remove_unbound_gaps=True, 
+                            mass_limit = ketjugw.get_mass_limit(ketju_file))
+        if len(merged_binary) != 1:
+            print('load_binaries_of_ketju_mergers did not find one binary!')
+            quit()
+
+        #add the found binary to merged_binaries
+        #this might work?
+        merged_binaries[(str(id1), str(id2))] = merged_binary[(id1, id2)]
+            
+
+    return merged_binaries
+
+#Get BHs that have been a part of a ketju integrated merger.
 def load_ketju_bhs_of_mergers(ketju_file: str, enforce_mass_limit=False):
 
     ketju_merger_info = load_ketju_merger_info(ketju_file)
