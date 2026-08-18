@@ -75,7 +75,7 @@ def load_nonketju_merger_info(directory: str, recalc: bool = False):
             return load_nonketju_merger_info(directory, recalc=True)
 
     
-
+    h = 0.674
     # word matches 'swallows' as a whole word, case-insensitive
     pattern = re.compile(r'\bswallows\b', re.IGNORECASE)
 
@@ -88,6 +88,7 @@ def load_nonketju_merger_info(directory: str, recalc: bool = False):
     file_pattern = os.path.join(directory, "blackhole_details_*.txt")
     z_merge = np.zeros(0)
     merger_id_pairs = np.empty((0,2))
+    merger_masses = np.empty((0,2))
 
     #example of a line which states that a merger has occurred
     #ThisTask=746, time=0.134105: id=8159924 swallows 7729381 (0.000105827 0.000878516)
@@ -106,6 +107,9 @@ def load_nonketju_merger_info(directory: str, recalc: bool = False):
                         words = line.split()
                         id1 = words[2][3:]
                         id2 = words[4]
+                        m1 = double(words[5][1:]) * 1e10/h
+                        m2 = double(words[-1][:-1]) * 1e10/h
+                        print(m1,m2)
 
                         #id check: if a run has crashed at some point, mergers
                         #have possibly ween written multiple times
@@ -124,13 +128,15 @@ def load_nonketju_merger_info(directory: str, recalc: bool = False):
 
                         if not merger_copy:
                             N_merge += 1
-                            a= float(words[1][5:-1])
+                            a = float(words[1][5:-1])
                             
                             z = 1/a-1
                             z_merge = np.append(z_merge, z)
                             
                             id_pair = np.array([[int(id1),int(id2)]])
+                            mass_pair = np.array([[m1,m2]])
                             merger_id_pairs = np.append(merger_id_pairs, id_pair, axis=0)
+                            merger_masses = np.append(merger_masses, mass_pair, axis=0)
                             lines_of_mergers.append(line)
                     
         except OSError as e:
@@ -147,6 +153,7 @@ def load_nonketju_merger_info(directory: str, recalc: bool = False):
 
     merger_data = dict(
         merger_ids = merger_id_pairs,
+        merger_masses = merger_masses,
         z = z_merge,
         N_merged = int(N_merge),
         lines_of_mergers = lines_of_mergers
