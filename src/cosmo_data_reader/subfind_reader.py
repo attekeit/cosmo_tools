@@ -5,10 +5,14 @@ import re
 import pickle
 import h5py
 import pygad
+from . import analysis_helper
 
 
 __all__ = ['read_subfind_files',
-            'get_bh_ids_in_each_subsystem']
+            'get_bh_ids_in_each_subsystem',
+            'get_substructures_without_bhs',
+            'add_virial_info_for_each_subhalo',
+            'add_extra_info_for_each_subhalo']
 
 #TODO add info about FoF host group nuymber
 class Subhalo():
@@ -50,7 +54,9 @@ class Subhalo_bh_info():
     Contains info about the IDs, masses and separation from centre for BH in subhalo.
     Also includes the subhalo dark matter (total and lowres) and stellar masses.
     '''
-    def __init__(self, bhids, bh_m, bh_m_sph, bh_r, mstar, mdm, mlowres, host_ind, sub_centre, rvir=None):
+    def __init__(self, bhids, bh_m, bh_m_sph, bh_r, mstar, mdm, mlowres, host_ind, 
+                    sub_centre, mtot, ids, central, rvir=None, mvir = None,
+                    sigma = None, r_half = None, m_twice_r_half = None):
         self.mdm = mdm
         self.mstar=mstar
         self.mlowres = mlowres
@@ -60,16 +66,55 @@ class Subhalo_bh_info():
         self.bh_m_sph = np.array(bh_m_sph, dtype=float)
         self.host_ind = host_ind
         self.centre = sub_centre
+        self.mtot = mtot
+        self.ids = np.array(ids, dtype=int)
+        self.central = central
+
         if rvir is None:
             self.rvir = -1
         else:
             self.rvir = rvir #kpc
+        if mvir is None:
+            self.mvir = -1
+        else:
+            self.mvir = mvir
+        
+        if sigma is None:
+            self.sigma = -1
+        else:
+            self.sigma = sigma
 
-    def compute_rvir(self, snap):
-        rvir, _ = pygad.analysis.halo.virial_info(
+        if r_half is None:
+            self.r_half = -1
+        else:
+            self.r_half = r_half
+
+        if m_twice_r_half is None:
+            self.m_twice_r_half = -1
+        else:
+            self.m_twice_r_half = m_twice_r_half
+
+    def compute_virial_info(self, snap):
+        rvir, mvir = pygad.analysis.halo.virial_info(
             snap, center=self.centre
         )
         self.rvir = rvir
+        self.mvir = mvir
+
+    def compute_extra_info(self, snap):
+        self.compute_virial_info(snap)
+        all_stars = snap.stars
+        r_half = pygad.analysis.half_mass_radius(all_stars, M=self.mstar, center=self.centre)
+        
+        gal_stars = all_stars[pygad.BallMask(2*r_half, center = self.centre)]
+
+        sigma = analysis_helper.stellar_sigma(gal_stars)
+        m_twice_r_half = np.sum(gal_stars['mass'])
+        
+        self.r_half = r_half
+        self.sigma = sigma
+        self.m_twice_r_half = m_twice_r_half
+        print(sigma, m_twice_r_half, r_half)
 
         return
 
@@ -149,6 +194,7 @@ def read_subfind_files(folder_path: str, snap_i: int, contamination_exclude_frac
     Max_mbh = np.zeros_like(Nbh)
     mstar = np.zeros_like(Nbh)
     mdm = np.zeros_like(Nbh)
+    mgas = np.zeros_like(Nbh)
     mlowres = np.zeros_like(Nbh)
     pos_x = np.zeros_like(Nbh)
     pos_y = np.zeros_like(Nbh)
@@ -189,10 +235,11 @@ def read_subfind_files(folder_path: str, snap_i: int, contamination_exclude_frac
                     n_bh_subhalo = subhalos['SubhaloNBH'][i_subhalo]
                     
                     #TODO what limit to use? only write data for systems with BH(s)?
-                    if subhalo_mstar/h > 0.001:
+                    if subhalo_mstar/h > 0.01 and n_bh_subhalo > 0.5:
                         
                         max_mbh_subhalo = subhalos['SubhaloMaxMBH'][i_subhalo]/h*1e10
                         subhalo_mdm = subhalo_mass_by_type[1]/h*1e10
+                        subhalo_mgas = subhalo_mass_by_type[0]/h*1e10
                         subhalo_mlowres = subhalo_mass_by_type[2]/h*1e10
                         subhalo_pos = subhalos['SubhaloPos'][i_subhalo]/h
                         pos_x[structures_to_include] = subhalo_pos[0]
@@ -204,6 +251,7 @@ def read_subfind_files(folder_path: str, snap_i: int, contamination_exclude_frac
                         Nbh[structures_to_include] = n_bh_subhalo
                         mstar[structures_to_include] = subhalo_mstar
                         mdm[structures_to_include] = subhalo_mdm
+                        mgas[structures_to_include] = subhalo_mgas
                         mlowres[structures_to_include] = subhalo_mlowres
                         Max_mbh[structures_to_include] = max_mbh_subhalo
                         subhalo_indices[structures_to_include] = i_subhalo + tot_n_subhalos
@@ -230,6 +278,7 @@ def read_subfind_files(folder_path: str, snap_i: int, contamination_exclude_frac
     mstar = mstar[:structures_to_include]
     Max_mbh = Max_mbh[:structures_to_include]
     mlowres = mlowres[:structures_to_include]
+    mgas = mgas[:structures_to_include]
     pos_x = pos_x[:structures_to_include]
     pos_y = pos_y[:structures_to_include]
     pos_z = pos_z[:structures_to_include]
@@ -240,6 +289,7 @@ def read_subfind_files(folder_path: str, snap_i: int, contamination_exclude_frac
         mdm = mdm[contamination_mask]
         Nbh = Nbh[contamination_mask]
         mstar = mstar[contamination_mask]
+        mgas = mgas[contamination_mask]
         Max_mbh = Max_mbh[contamination_mask]
         pos_x = pos_x[contamination_mask]
         pos_y = pos_y[contamination_mask]
@@ -249,6 +299,7 @@ def read_subfind_files(folder_path: str, snap_i: int, contamination_exclude_frac
         mdm = mdm,
         mstar = mstar,
         max_mbh = Max_mbh,
+        mgas = mgas,
         Nbh = Nbh,
         mlowres = mlowres,
         pos_x = pos_x,
@@ -269,7 +320,8 @@ def read_subfind_files(folder_path: str, snap_i: int, contamination_exclude_frac
     return structure_data
 
 def get_bh_ids_in_each_subsystem(folder_path: str, snap_base_fname: str, snap_i: int, 
-                                    contamination_exclude_frac = None, recalc: bool = False):
+                                    contamination_exclude_frac = None, recalc: bool = False,
+                                    min_mstar = 1e7):
     
     """
     NOTE: This assumes that subfind has been compiled with the following flags:
@@ -317,8 +369,23 @@ def get_bh_ids_in_each_subsystem(folder_path: str, snap_base_fname: str, snap_i:
     """
 
     subfind_fname_start = folder_path + f"/groups_{snap_i:03d}/sub_{snap_i:03d}"
+    '''
+
+    pkl_fname = folder_path + f"/subfind_bh_data_{snap_i:03d}"
     
+    stellar_limit_string = f"_{min_mstar:.0e}_min_mstar"
+    #print(stellar_limit_string)
+
+    if contamination_exclude_frac is None:
+        pkl_fname = folder_path + f"/subfind_bh_data_{snap_i:03d}_no_contamination_cut"
+    elif abs(contamination_exclude_frac-0.1) < 1e-3:
+        pkl_fname = folder_path + f"/subfind_bh_data_{snap_i:03d}_10_percent_contamination_cut"
+
+    pkl_fname += stellar_limit_string + ".pkl"
+    '''
+
     pkl_fname = folder_path + f"/subfind_bh_data_{snap_i:03d}.pkl"
+
     #check if data is already saved. If not, we will loop through subfind files.
     if not recalc:
         try:
@@ -327,7 +394,7 @@ def get_bh_ids_in_each_subsystem(folder_path: str, snap_base_fname: str, snap_i:
         #This most likely is not best practise but whatever
         except FileNotFoundError:
             data_stucture = get_bh_ids_in_each_subsystem(folder_path, snap_base_fname, snap_i, 
-                                    contamination_exclude_frac, recalc=True)
+                                    contamination_exclude_frac, recalc=True, min_mstar=min_mstar)
         return data_stucture
 
 
@@ -378,6 +445,8 @@ def get_bh_ids_in_each_subsystem(folder_path: str, snap_base_fname: str, snap_i:
     Nbhs = np.zeros(max_subs, dtype=int)
     mstar = np.zeros_like(pos_x)
     mdm = np.zeros_like(pos_x)
+    mtot = np.zeros_like(pos_x)
+    mbh = np.zeros_like(pos_x)
     mlowres = np.zeros_like(pos_x)
     host_ind = np.zeros(max_subs, dtype=int)
 
@@ -428,6 +497,10 @@ def get_bh_ids_in_each_subsystem(folder_path: str, snap_base_fname: str, snap_i:
                 mdm[subfind_total:subfind_total+n_subhalos] = (subhalos_mass_by_type[:,1]+subhalos_mass_by_type[:,2])/h*1e10
                 mlowres[subfind_total:subfind_total+n_subhalos] = subhalos_mass_by_type[:,2]/h*1e10
 
+                #TODO sum better
+                mtot[subfind_total:subfind_total+n_subhalos] = (subhalos_mass_by_type[:,0]+subhalos_mass_by_type[:,5])/h*1e10
+                mtot[subfind_total:subfind_total+n_subhalos] += mdm[subfind_total:subfind_total+n_subhalos] + mstar[subfind_total:subfind_total+n_subhalos]
+                mbh[subfind_total:subfind_total+n_subhalos] = subhalos_mass_by_type[:,5]/h*1e10
 
                 max_part_num = max(max_part_num, max(particles_per_subhalo))
                 max_offset = max(max_offset, max(np.diff(sub_offsets)))
@@ -444,6 +517,8 @@ def get_bh_ids_in_each_subsystem(folder_path: str, snap_base_fname: str, snap_i:
     substruct_info = dict()
     #we now have the position, offsets and length for each structure, now we can get the
     #IDs for each substructure, and check if any IDs match BH IDs.
+    
+    host_prev = -1
     for i_subhalo in range(subfind_total):
         #print(i_subhalo)
         offset = offsets[i_subhalo]
@@ -458,8 +533,15 @@ def get_bh_ids_in_each_subsystem(folder_path: str, snap_base_fname: str, snap_i:
         sub_mstar = mstar[i_subhalo]
         sub_lowres = mlowres[i_subhalo]
         sub_host_ind = host_ind[i_subhalo]
+        sub_mbh = mbh[i_subhalo]
+        sub_mtot = mtot[i_subhalo]
 
-        if sub_mstar < 1e7:
+        if host_prev != sub_host_ind:
+            central = True
+        else:
+            central = False
+
+        if sub_mstar < min_mstar:
             continue
 
         if contamination_exclude_frac is not None:
@@ -470,8 +552,10 @@ def get_bh_ids_in_each_subsystem(folder_path: str, snap_base_fname: str, snap_i:
         subhalo_center = pygad.UnitArr([sub_x, sub_y, sub_z], 'ckpc h_0**-1').in_units_of('kpc', subs=snap)
         bhs_this_sub = bhs[np.in1d(bhs['ID'], ids_subhalo)]
         if len(bhs_this_sub) != Nbhs[i_subhalo]:
-            print('Mismatch in BH number!',len(bhs_this_sub),  Nbhs[i_subhalo], i_subhalo)
+            print('Mismatch in BH number!',len(bhs_this_sub),  Nbhs[i_subhalo], sub_mbh, i_subhalo)
+            #print(ids_subhalo)
             print(offset, npart)
+            continue
             quit()
         if len(bhs_this_sub) > 0:
             bhids = bhs_this_sub['ID']
@@ -483,7 +567,8 @@ def get_bh_ids_in_each_subsystem(folder_path: str, snap_base_fname: str, snap_i:
             dists = np.linalg.norm(subhalo_bh_positions-subhalo_center[np.newaxis], axis=-1)
             
             substruct_info[i_subhalo] = Subhalo_bh_info(bhids, subhalo_bh_masses, subhalo_bh_sph_masses, 
-                                        dists, sub_mstar, sub_mdm, sub_lowres, sub_host_ind, subhalo_center)
+                                        dists, sub_mstar, sub_mdm, sub_lowres, sub_host_ind, 
+                                        subhalo_center, sub_mtot, ids_subhalo, central)
 
     print('Saving the read subfind data to ', pkl_fname)
     with open(pkl_fname, 'wb') as f:
@@ -499,7 +584,7 @@ def get_bh_ids_in_each_subsystem(folder_path: str, snap_base_fname: str, snap_i:
 #Instead, it is saved for each FoF group.
 #Calculate the virial radius for each subhalo and save the info
 #This might take a while to run :)
-def add_rvir_info_for_each_subhalo(folder_path: str, snap_i: int, 
+def add_virial_info_for_each_subhalo(folder_path: str, snap_i: int, 
                         snap_base_fname: str, recalc: bool = False):
     """
     Calculate virial radius from the snapshot for each subhalo from SUBFIND files. 
@@ -540,23 +625,28 @@ def add_rvir_info_for_each_subhalo(folder_path: str, snap_i: int,
 
     print('Looping through subhalos to add virial radii info, may take a while...')
 
+    i_calc = 0
+    pkl_fname = folder_path + f"/subfind_bh_data_{snap_i:03d}.pkl"
+
     #add virial radius to the info
     for subhalo_id, subhalo_info in bh_host_info.items():
         print(subhalo_id)
         #If the info has already been added, we can just return
         if subhalo_info.rvir > 0:
-            print('Saved data already has virial radii info included, no need to loop over again.')
-            del snap
-            pygad.gc_full_collect()
-            return
+            continue
         
-        subhalo_info.compute_rvir(snap)
+        subhalo_info.compute_virial_info(snap)
+        i_calc += 1
+        #save progress
+        if i_calc == 10:
+            i_calc = 0
+            with open(pkl_fname, 'wb') as f:
+                pickle.dump(bh_host_info, f, protocol=pickle.HIGHEST_PROTOCOL)
         #center = subhalo_info.centre #in units of kpc
         #rvir, _ = pygad.analysis.halo.virial_info(snap, center=center)
         #subhalo_info.rvir = rvir
 
     #overwrite previous saved data with the new data
-    pkl_fname = folder_path + f"/subfind_bh_data_{snap_i:03d}.pkl"
     with open(pkl_fname, 'wb') as f:
         pickle.dump(bh_host_info, f, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -566,3 +656,341 @@ def add_rvir_info_for_each_subhalo(folder_path: str, snap_i: int,
     pygad.gc_full_collect()
 
     return
+
+
+def add_extra_info_for_each_subhalo(folder_path: str, snap_i: int, 
+                        snap_base_fname: str, recalc: bool = False, systems_with_bhs = True):
+    """
+    Calculate virial info, r_half, etc. from the snapshot for each subhalo from SUBFIND files. 
+    Saves the info to a pkl file which will be used if this is called again. 
+    Note that your subfind fields may not match what this functions expects them to have.
+
+    TODO known issue(s): Run and creates an empty pkl file even if files
+                         are not found
+
+    Args:
+        folder_path (str): Path to the directory to scan (output directory, 
+        not the /groups_iii folder in it).
+
+        snap_i (int): Number of snapshot
+
+        snap_base_fname (str): Filename of snapshot (needed to get info about mass and position based on IDs)
+        
+        recalc (bool): loop through subfind files again even if pkl file exists
+
+        systems_with_bhs (bool): add info to systems with or without BHs        
+
+    Returns:
+        
+    """
+
+    snap = pygad.Snapshot(snap_base_fname + f'_{snap_i:03d}.hdf5')
+    snap.to_physical_units()
+    z = snap.redshift
+    a = 1/(z+1)
+
+    #the saved subfind data has positions saved in ckpc
+    #Let's add info to the files which also have BH-specific info,
+    #since we most likely want to look at r_wander/r_vir for the BHs
+    #subfind_data = read_subfind_files(folder_path, snap_i, recalc=False)
+    #for now, hardcoded exclusion of >1% contaminated systems
+
+    #Load saved info
+    if systems_with_bhs:
+        host_info = get_bh_ids_in_each_subsystem(folder_path, snap_base_fname, snap_i, contamination_exclude_frac = 0.01, recalc = recalc)
+        pkl_fname = folder_path + f"/subfind_bh_data_{snap_i:03d}.pkl"
+    else:
+        host_info = get_substructures_without_bhs(folder_path, snap_base_fname, snap_i, contamination_exclude_frac = 0.01, recalc = recalc)
+        pkl_fname = folder_path + f"/substructures_without_bhs_{snap_i:03d}.pkl"
+    contamination_exclude_frac = 0.01
+
+    print('Looping through subhalos to add extra info, may take a while...')
+    print(pkl_fname)
+
+    i_calc = 0
+
+    '''
+    pkl_fname = folder_path + f"/subfind_bh_data_{snap_i:03d}"
+    min_mstar=1e7
+    stellar_limit_string = f"_{min_mstar:.0e}_min_mstar"
+    #print(stellar_limit_string)
+
+    if contamination_exclude_frac is None:
+        pkl_fname = folder_path + f"/subfind_bh_data_{snap_i:03d}_no_contamination_cut"
+    elif abs(contamination_exclude_frac-0.1) < 1e-3:
+        pkl_fname = folder_path + f"/subfind_bh_data_{snap_i:03d}_10_percent_contamination_cut"
+
+    pkl_fname += stellar_limit_string + ".pkl"
+
+    '''
+    #add extra info
+    for subhalo_id, subhalo_info in host_info.items():
+        print(subhalo_id)
+        #If the info has already been added, we can just continue
+        if subhalo_info.sigma > 0:
+            continue
+        
+        subhalo_info.compute_extra_info(snap)
+        i_calc += 1
+        #save progress
+        if i_calc == 10:
+            i_calc = 0
+            with open(pkl_fname, 'wb') as f:
+                pickle.dump(host_info, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+
+    #overwrite previous saved data with the new data
+    with open(pkl_fname, 'wb') as f:
+        pickle.dump(host_info, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    print('Extra info added to ', pkl_fname)
+
+    del snap
+    pygad.gc_full_collect()
+
+    return
+
+
+#Very similar to get_bh_ids_in_each_subsystem
+def get_substructures_without_bhs(folder_path: str, snap_base_fname: str, snap_i: int, 
+                                    contamination_exclude_frac = None, recalc: bool = False,
+                                    min_mstar = 1e7):
+    
+    """
+    NOTE: This assumes that subfind has been compiled with the following flags:
+          SUBFIND
+          DENSITY_SPLIT_BY_TYPE=1+2+4+16+32  # Split gas, DM, lowres DM, stars and BH
+          WRITE_SUB_IN_SNAP_FORMAT           # Save subfind results in snap format
+          SAVE_MASS_TAB
+          SUBFIND_BH_INFO
+          SUBFIND_NO_UNBIND_CHECK_FOR_BH
+          Some of these we added in the commit AAA
+
+    This would be easiest if subfind is compiled with SUBFIND_SAVE_PARTICLELISTS,
+    but can be done using the snapshot and the current saved subfind info.
+    Loop through ID info for each particle using subfind data.
+    Also calculates extra info, so takes a while to run.
+    Necessary for example in occupation fraction calculations.
+
+    TODO improve the input params (snap info given akwardly)
+
+    Args:
+        folder_path (str): Path to the directory to scan (output directory, 
+        not the /groups_iii folder in it).
+
+        snap_base_fname (str): Filename of snapshot (needed to get info wabout mass and position based on IDs)
+
+        snap_i (int): Number of snapshot
+        
+        contamination_exclude_frac (float): if a structure has a mass fraction higher
+        than this amount of dark matter in low-res particles, the structure will be
+        excluded
+
+        recalc (bool): loop through subfind files again even if pkl file exists
+
+    Returns:
+        Currently returns for each bh mass, separation from centre and host id.
+        Would be better to return data for each subhalo (their BH ids, masses and separations)
+        structure_data (dict): Includes:
+            - mdm 
+            - mstar 
+            - Nbh 
+            - mlowres 
+            - pos_x (NOTE! In comoving units)
+            - pos_y (NOTE! In comoving units)
+            - pos_z (NOTE! In comoving units)
+    """
+
+    subfind_fname_start = folder_path + f"/groups_{snap_i:03d}/sub_{snap_i:03d}"
+
+
+    pkl_fname = folder_path + f"/substructures_without_bhs_{snap_i:03d}.pkl"
+
+    #check if data is already saved. If not, we will loop through subfind files.
+    if not recalc:
+        try:
+            with open(pkl_fname, 'rb') as f:
+                data_stucture = pickle.load(f)
+        #This most likely is not best practise but whatever
+        except FileNotFoundError:
+            data_stucture = get_substructures_without_bhs(folder_path, snap_base_fname, snap_i, 
+                                    contamination_exclude_frac, recalc=True, min_mstar=min_mstar)
+        return data_stucture
+
+   
+    # Find files like groups folder
+    file_pattern = subfind_fname_start + '.*.hdf5'
+
+    z_merge = np.zeros(0)
+    merger_id_pairs = np.empty((0,2))
+
+    files_checked = 0
+
+    #TODO can just BHs be loaded instead of the full snap?
+    snap = pygad.Snapshot(snap_base_fname + f'_{snap_i:03d}.hdf5')
+    snap.to_physical_units()
+    bhs = snap.bh
+    #bhs = pygad.Snapshot(snap_base_fname + f'_{snap_i:03d}.hdf5').bh
+    #Default value for host number is -1 (BHs not assigned to any system will have this value)
+    subnum = np.ones(len(bhs), dtype=int)
+    subnum = subnum * -1
+    #separation from the centre (units? default would be ckpc/h)
+    r_centre = np.zeros(len(bhs))
+
+    fof_offset_this_file = 0
+    subfind_offset_this_file = 0
+
+    max_part_num = 0
+    max_offset = 0
+    total_number_of_ids = 0
+    total_number_of_parts_in_structures = 0
+
+    #let's do this with one loop, nees to allocate quite big arrays,
+    #will NOT work with very big simulation outputs
+    #might need two loops over subfind files, as
+    #needs also number of substructures
+    subfind_full_idlist = np.zeros(len(snap), dtype=int)
+
+    hostlist=dict()
+    #need also amount
+    subfind_total = 0
+
+    max_subs = 100000
+    pos_x = np.zeros(max_subs)
+    pos_y = np.zeros(max_subs)
+    pos_z = np.zeros(max_subs)
+    offsets = np.zeros(max_subs, dtype=int)
+    lens = np.zeros(max_subs, dtype=int)
+    Nbhs = np.zeros(max_subs, dtype=int)
+    mstar = np.zeros_like(pos_x)
+    mdm = np.zeros_like(pos_x)
+    mtot = np.zeros_like(pos_x)
+    mbh = np.zeros_like(pos_x)
+    mlowres = np.zeros_like(pos_x)
+    host_ind = np.zeros(max_subs, dtype=int)
+
+    a = None
+    h = None
+
+    print('Looping through subfind files in ', folder_path, 'for snapshot ', snap_base_fname, 'number ', snap_i)
+
+    i = 0
+    
+    #we have folder/sub_snap_i.NUMBER.hdf5
+    #subfind_fname_start has everything before the number we sort with except the final dot
+    len_start = len(subfind_fname_start) + 1
+    for subfind_fname in sorted(glob.glob(file_pattern), key=lambda x: int(x[len_start:-5])):
+        try:
+            with h5py.File(subfind_fname, 'r') as f:
+                header_info = f['Header'].attrs
+                if a is None:
+                    a = header_info['Time']
+                if h is None:
+                    h = header_info['HubbleParam']
+                ids = f['IDs']['PID ']
+
+                subfind_full_idlist[total_number_of_ids:total_number_of_ids+len(ids)] = ids
+                groups = f['Group']
+                
+                subhalos = f['Subhalo']
+                
+                n_groups = len(groups['GroupLen'])
+                fof_offsets = groups['GroupOffset']
+                sub_offsets = subhalos['SubhaloOffset']
+                particles_per_subhalo = subhalos['SubhaloLen']
+                n_subhalos = len(subhalos['SubhaloLen'])
+                nbhs_subhalos = subhalos['SubhaloNBH']
+                subhalo_host_numbers =subhalos['SubhaloGrNr']
+
+                sub_pos = subhalos['SubhaloPos']
+                subhalos_mass_by_type = subhalos['SMST']
+                offsets[subfind_total:subfind_total+n_subhalos] = sub_offsets
+                lens[subfind_total:subfind_total+n_subhalos] = particles_per_subhalo
+                pos_x[subfind_total:subfind_total+n_subhalos] = sub_pos[:,0]
+                pos_y[subfind_total:subfind_total+n_subhalos] = sub_pos[:,1]
+                pos_z[subfind_total:subfind_total+n_subhalos] = sub_pos[:,2]
+                Nbhs[subfind_total:subfind_total+n_subhalos] = nbhs_subhalos
+                host_ind[subfind_total:subfind_total+n_subhalos] = subhalo_host_numbers
+                
+                mstar[subfind_total:subfind_total+n_subhalos] = subhalos_mass_by_type[:,4]/h*1e10
+                mdm[subfind_total:subfind_total+n_subhalos] = (subhalos_mass_by_type[:,1]+subhalos_mass_by_type[:,2])/h*1e10
+                mlowres[subfind_total:subfind_total+n_subhalos] = subhalos_mass_by_type[:,2]/h*1e10
+
+                #TODO sum better
+                mtot[subfind_total:subfind_total+n_subhalos] = (subhalos_mass_by_type[:,0]+subhalos_mass_by_type[:,5])/h*1e10
+                mtot[subfind_total:subfind_total+n_subhalos] += mdm[subfind_total:subfind_total+n_subhalos] + mstar[subfind_total:subfind_total+n_subhalos]
+                mbh[subfind_total:subfind_total+n_subhalos] = subhalos_mass_by_type[:,5]/h*1e10
+
+                max_part_num = max(max_part_num, max(particles_per_subhalo))
+                max_offset = max(max_offset, max(np.diff(sub_offsets)))
+                total_number_of_ids += len(ids)
+                total_number_of_parts_in_structures += sum(particles_per_subhalo)
+                subfind_total += n_subhalos
+                
+        except OSError as e:
+            print(f"Something went wrong reading file {filepath}: {e}")
+            quit()
+
+    subfind_full_idlist = subfind_full_idlist[:total_number_of_ids]
+
+    substruct_info = dict()
+    #we now have the position, offsets and length for each structure, now we can get the
+    #IDs for each substructure, and check if any IDs match BH IDs.
+    
+    host_prev = -1
+    for i_subhalo in range(subfind_total):
+        #print(i_subhalo)
+        offset = offsets[i_subhalo]
+        npart = lens[i_subhalo]
+        ids_subhalo = subfind_full_idlist[offset:offset+npart]
+        
+        #check if we have bhs whose id matches any of the ids_subhalo
+        sub_x = pos_x[i_subhalo]
+        sub_y = pos_y[i_subhalo]
+        sub_z = pos_z[i_subhalo]
+        sub_mdm = mdm[i_subhalo]
+        sub_mstar = mstar[i_subhalo]
+        sub_lowres = mlowres[i_subhalo]
+        sub_host_ind = host_ind[i_subhalo]
+        sub_mbh = mbh[i_subhalo]
+        sub_mtot = mtot[i_subhalo]
+
+        if host_prev != sub_host_ind:
+            central = True
+        else:
+            central = False
+
+        if sub_mstar < min_mstar:
+            continue
+
+        if contamination_exclude_frac is not None:
+            if sub_lowres/sub_mdm > contamination_exclude_frac:
+                continue
+        
+
+        subhalo_center = pygad.UnitArr([sub_x, sub_y, sub_z], 'ckpc h_0**-1').in_units_of('kpc', subs=snap)
+        bhs_this_sub = bhs[np.in1d(bhs['ID'], ids_subhalo)]
+        if len(bhs_this_sub) != Nbhs[i_subhalo]:
+            print('Mismatch in BH number!',len(bhs_this_sub),  Nbhs[i_subhalo], sub_mbh, i_subhalo)
+            #print(ids_subhalo)
+            print(offset, npart)
+            continue
+            quit()
+        #We only want to save structures that do not have BHs
+        if len(bhs_this_sub) == 0:
+            bhids = []
+            subhalo_bh_masses = []
+            subhalo_bh_sph_masses = []
+            dists = []
+            substruct_info[i_subhalo] = Subhalo_bh_info(bhids, subhalo_bh_masses, subhalo_bh_sph_masses, 
+                                        dists, sub_mstar, sub_mdm, sub_lowres, sub_host_ind, 
+                                        subhalo_center, sub_mtot, ids_subhalo, central)
+
+    print('Saving the no-BH subfind data to ', pkl_fname)
+    with open(pkl_fname, 'wb') as f:
+        pickle.dump(substruct_info, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    del snap
+    pygad.gc_full_collect()
+
+    return substruct_info
