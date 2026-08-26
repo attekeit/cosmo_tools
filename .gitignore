@@ -1,0 +1,4 @@
+#pycache and egg-info:
+
+src/cosmo_data_reader/__pycache__
+src/cosmo_data_reader.egg-info/

@@ -3,8 +3,11 @@ including snapshots (with pygad), subfind data, ketju data and data outputted fo
 
 Different python files include helper function for different data structures.
 
-Install the library with command 'pip install -e .'
+Install the library with command
 
+```
+$ pip install -e .
+```
 
 ## TODOs
     * Add ketjugw and pygad to requirements
