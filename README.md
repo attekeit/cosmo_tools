@@ -12,3 +12,4 @@ $ pip install -e .
 ## TODOs
     * Add ketjugw and pygad to requirements
     
+    * add numpy 2.0 as requirement

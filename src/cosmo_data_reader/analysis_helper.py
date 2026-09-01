@@ -82,7 +82,7 @@ def get_eddington_rate(m, rad_eff = 0.1):
     fac  = 2.2e-9/rad_eff * m
     return fac
 
-def add_z_as_second_xaxis(ax, z_ticks = None, time_unit = 'Gyr',
+def add_z_as_second_xaxis(ax, z_ticks = None, ticklabels= True, time_unit = 'Gyr',
                           h = 0.674, Omega_L = 0.685, Omega_m = 0.315):
 
     xlim = ax.get_xlim()
@@ -96,8 +96,6 @@ def add_z_as_second_xaxis(ax, z_ticks = None, time_unit = 'Gyr',
     else:
         print('Units', time_unit, 'not supported, use Myr or Gyr!')
         quit()
-
-    print(xlim)
 
     zstart = time_to_z(t0)
     zend = time_to_z(tend)
@@ -124,8 +122,11 @@ def add_z_as_second_xaxis(ax, z_ticks = None, time_unit = 'Gyr',
         functions=(time_to_z_wrapper, z_to_time_wrapper)
     )
 
-    secax.set_xlabel('Redshift $z$')
     secax.set_xticks(z_ticks)
+    if ticklabels:
+        secax.set_xlabel('Redshift $z$')
+    else:
+        secax.set_xticklabels([])
 
     #Not sure what this should return, do we need to return these two?
     #Maybe good to return, in case of user wanting to make further edits
